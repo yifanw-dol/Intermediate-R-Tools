@@ -1,0 +1,434 @@
+---
+title: "Data Tables with gt (BLS API Version)"
+author: "From Raw Data to Regional Insights: Intermediate R Tools for Workforce & Economic Development"
+date: "Nov 19-20, 2025"
+output:
+  html_document:
+    css: assets/rany_style.css
+    df_print: paged
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    toc_float:
+      collapsed: true
+    number_sections: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(gt)
+library(scales)
+library(blsAPI)
+```
+
+# 1. Introduction to `gt`
+
+In this section, we use the **gt** package to create publication-quality tables for reports, dashboards, and policy briefs.
+
+We will:
+
+- Download **real unemployment rate data** from the **BLS API (LAUS program)**  
+- Clean and reshape the data  
+- Use `gt()` to build nicely formatted tables  
+- Add titles, labels, grouping, summary rows, and custom styling  
+
+Documentation:
+
+- **gt**: <https://gt.rstudio.com/>  
+- **BLS LAUS program**: <https://www.bls.gov/lau/>  
+- **BLS Public Data API**: <https://www.bls.gov/developers/>
+
+---
+
+# 2. Getting unemployment data from the BLS API
+
+We use the **blsAPI** package to pull monthly unemployment rates for:
+
+- **New Jersey** (state FIPS = 34)  
+- **New York** (state FIPS = 36)  
+- **Pennsylvania** (state FIPS = 42)  
+
+These are **LAUS** series (Local Area Unemployment Statistics), seasonally adjusted monthly unemployment rates:
+
+- `LASST340000000000003` — New Jersey, unemployment rate  
+- `LASST360000000000003` — New York, unemployment rate  
+- `LASST420000000000003` — Pennsylvania, unemployment rate  
+
+You need your own BLS API key: <https://data.bls.gov/registrationEngine/>
+
+```{r}
+# Replace with your own BLS API key
+bls_key <- Sys.getenv("BLS_API_KEY")
+
+series_ids <- c(
+  "LASST340000000000003", # New Jersey unemployment rate
+  "LASST360000000000003", # New York unemployment rate
+  "LASST420000000000003"  # Pennsylvania unemployment rate
+)
+
+unemp_raw <- blsAPI(
+  list(
+    'seriesid'       = series_ids,
+    'startyear'      = 2024,
+    'endyear'        = 2025,
+    'annualaverage'  = FALSE,
+    'calculations'   = FALSE,
+    'catalog'        = FALSE,
+    'registrationKey'= bls_key
+  ),
+  api_version       = 2,
+  return_data_frame = TRUE
+)
+
+unemp_raw
+```
+
+The API returns:
+
+- `year`, `period` (e.g. `"M01"`, `"M02"`, …, `"M12"`),  
+- `seriesID`, `value`, and some metadata.
+
+We will:
+
+1. Convert `period` + `year` into a readable label (e.g. `"Jan 2024"`)  
+2. Map each `seriesID` to a **state name**  
+3. Keep only the **most recent two months** per state to keep the table small and readable  
+4. Build a simple dataset: `state`, `period`, `unemp_rate`
+
+
+```{r}
+# typeof(unemp_raw$value)
+
+unemp_example <- unemp_raw %>%
+  mutate(
+    value = as.numeric(value),
+    month = substr(period, 2, 3),
+    period = paste0(year, "-", month),
+    state = case_when(
+      seriesID == "LASST340000000000003" ~ "New Jersey",
+      seriesID == "LASST360000000000003" ~ "New York",
+      seriesID == "LASST420000000000003" ~ "Pennsylvania",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  filter(period != "M13") %>% # ensure we only keep monthly observations
+  arrange(state, year, month) %>%
+  group_by(state) %>%
+  slice_tail(n = 2) %>%        # last 2 months per state
+  ungroup() %>%
+  select(
+    state,
+    period,
+    unemp_rate  = value
+  )
+
+unemp_example
+
+# Quality check
+table(unemp_example$state)
+```
+
+Now we have a **clean, small dataset** from the BLS API:
+
+- `state` — State name  
+- `period` — Month and year (e.g. “Jul 2025”)  
+- `unemp_rate` — Unemployment rate (already in percent units, e.g. 4.5 = 4.5%)
+
+---
+
+# 3. A basic `gt` table
+
+Convert this tibble into a `gt` table:
+
+```{r}
+unemp_gt <- unemp_example %>%
+  gt()
+
+unemp_gt
+```
+
+By default, `gt()`:
+
+- Uses column names as headings  
+- Preserves row order  
+- Produces HTML output that knits nicely in R Markdown  
+
+## 3.1 Adding a title and subtitle
+
+```{r}
+unemp_gt <- unemp_example %>%
+  gt() |>
+  tab_header(
+    title    = md("**Unemployment Rate by State**"),
+    subtitle = md("Latest two months from BLS LAUS (API download)")
+  )
+
+unemp_gt
+```
+
+---
+
+## 3.2 Exercises: Basic `gt` (with BLS data)
+
+- keep the latest 3 months instead of the latest 2.
+- Limit unemp_example to only New Jersey and New York,
+- Build a gt() table just for those two states.
+
+---
+
+# 4. Formatting columns
+
+Tables are clearer when numeric columns are formatted properly.  
+Our unemployment rate is already a **percentage**, e.g. 4.5 = 4.5%.
+
+```{r}
+unemp_gt_fmt <- unemp_example %>%
+  gt() |>
+  tab_header(
+    title    = md("**Unemployment Rate by State**"),
+    subtitle = md("Latest two months from BLS LAUS (API download)")
+  ) |>
+  cols_label(
+    state      = "State",
+    period     = "Month",
+    unemp_rate = "Unemployment Rate"
+  ) |>
+  fmt_percent(
+    columns  = unemp_rate,
+    decimals = 1,
+    scale_values = FALSE
+    )
+
+unemp_gt_fmt
+```
+
+---
+
+## 4.1 Highlighting values and alignment
+
+We can right-align numeric columns and emphasize higher unemployment rates visually.
+
+```{r}
+unemp_gt_fmt |>
+  cols_align(
+    columns = unemp_rate,
+    align   = "right"
+  ) |>
+  data_color(
+    columns = unemp_rate,
+    colors  = col_numeric(
+      palette = c("beige", "#ff6f69"),
+      domain  = range(unemp_example$unemp_rate, na.rm = TRUE)
+    )
+  )
+```
+
+---
+
+# 5. Grouping rows and adding spanners
+
+Next, we’ll reshape the data to have **one row per state** and **one column per month**, then use:
+
+- **Row groups** (for a fake “region”)  
+- **Column spanners** (to group the month columns)
+
+```{r}
+unemp_wide <- unemp_example %>%
+  mutate(
+    region = "Northeast"
+  ) %>%
+  pivot_wider(
+    id_cols     = c(region, state),
+    names_from  = period,
+    values_from = unemp_rate
+  )
+
+unemp_wide
+```
+
+Now create a `gt` table with row groups and a column spanner:
+
+```{r}
+unemp_gt_grouped <- unemp_wide |>
+  gt(
+    rowname_col   = "state",
+    groupname_col = "region"
+  ) |>
+  tab_header(
+    title    = md("**Unemployment Rate: Northeast States**"),
+    subtitle = "Latest two months from BLS LAUS (API download)"
+  ) |>
+  fmt_percent(
+    columns  = where(is.numeric),
+    decimals = 1,
+    scale_values = FALSE
+  ) |>
+  tab_spanner(
+    label   = "Unemployment Rate (Percent)",
+    columns = where(is.numeric)
+  )
+
+unemp_gt_grouped
+```
+
+---
+
+# 6. Summary rows and source notes
+
+We now compute the **average unemployment rate** across states for each month, and then create a table with:
+
+- One row per month  
+- A **grand summary row** with the overall average across months  
+- A source note  
+
+```{r}
+unemp_summary <- unemp_example |>
+  group_by(period) |>
+  summarize(
+    avg_unemp = mean(unemp_rate),
+    .groups   = "drop"
+  )
+
+unemp_summary
+```
+
+```{r}
+unemp_summary_gt <- unemp_summary |>
+  gt() |>
+  tab_header(
+    title    = md("**Average Unemployment Rate across Selected States**"),
+    subtitle = md("Simple average across New Jersey, New York, and Pennsylvania")
+  ) |>
+  cols_label(
+    period    = "Month",
+    avg_unemp = "Average Unemployment Rate"
+  ) |>
+  summary_rows(
+    groups  = NULL,
+    columns = avg_unemp,
+    fns     = list(
+      "Overall Average" = ~ paste0(format(mean(., na.rm = TRUE), digits = 2), "%")
+    )
+  ) |>
+  fmt_percent(
+    columns  = avg_unemp,
+    decimals = 1,
+    scale_values = FALSE
+  ) |>
+  tab_source_note(
+    source_note = md("**Source:** U.S. Bureau of Labor Statistics, Local Area Unemployment Statistics (LAUS), via Public Data API.")
+  )
+
+unemp_summary_gt
+```
+
+---
+
+# 7. Styling and themes
+
+We can refine the visual appearance using `tab_options()` and `tab_style()`.
+
+Below is an "agency-style" table with:
+
+- Bold title  
+- Light row striping  
+- Subtle borders  
+- Slightly larger fonts  
+
+```{r}
+unemp_styled <- unemp_example %>%
+  gt() |>
+  tab_header(
+    title    = md("**Unemployment Rate by State**"),
+    subtitle = "Latest two months of data from BLS LAUS"
+  ) |>
+  cols_label(
+    state      = "State",
+    period     = "Month",
+    unemp_rate = "Unemployment Rate"
+  ) |>
+  fmt_percent(
+    columns  = unemp_rate,
+    decimals = 1,
+    scale_values = FALSE
+  ) |>
+  tab_options(
+    table.font.size               = px(12),
+    table.border.top.width        = px(1),
+    table.border.bottom.width     = px(1),
+    heading.background.color      = "#f2f2f2",
+    row.striping.background_color = "#fafafa",
+    row.striping.include_table_body = TRUE
+  ) |>
+  tab_style(
+    style = list(
+      cell_text(weight = "bold")
+    ),
+    locations = cells_title(groups = "title")
+  )
+
+unemp_styled
+```
+
+Highlight New Jersey specifically:
+
+```{r}
+unemp_styled_nj <- unemp_styled |>
+  tab_style(
+    style = list(
+      cell_text(weight = "bold", color = "darkblue")
+    ),
+    locations = cells_body(
+      rows    = state == "New Jersey",
+      columns = everything()
+    )
+  )
+
+unemp_styled_nj
+```
+
+---
+
+## 7.1 Exercises: Styling
+
+Use `tab_options()` to:
+- Increase row padding with `row.padding = px(8)`
+- Set the heading background color using `heading.background.color = "your_color_here"`
+
+Use `tab_style()` to:
+- Apply red text to any row where unemployment is above 5%. Hint: use `rows = unemp_rate > 5` inside `cells_body()`.
+
+---
+
+# 8. Saving tables
+
+You can export `gt` tables to external files (HTML, image, etc.) using `gtsave()`. Note: these commands write files to your working directory when run in RStudio.
+
+```{r eval=FALSE}
+# Set up working directory
+setwd("/Users/yifan/Desktop/R training/")
+
+# Example: save as png
+gtsave(
+  data     = unemp_styled_nj,
+  filename = "results/tables/unemployment_table_nj.png"
+)
+```
+
+# Summary
+
+- We used the **BLS Public Data API** to pull real unemployment data for multiple states.
+- We cleaned and reshaped the raw API output into a tidy, readable dataset.
+- The **gt** package allows us to turn tidy data into publication-ready tables.
+- We added titles, labels, formatting, color highlights, row groups, spanners, and summary rows.
+- With `gt()`, tables become **fully reproducible**, easy to update, and ready for reports, dashboards, and presentations.
+
