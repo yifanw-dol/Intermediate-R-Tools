@@ -1,0 +1,305 @@
+---
+title: "Data Wrangling"
+author: "From Raw Data to Regional Insights: Intermediate R Tools for Workforce & Economic Development"
+date: "Nov 19-20, 2025"
+output:
+  html_document:
+    css: assets/rany_style.css
+    df_print: paged
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    toc_float:
+      collapsed: true
+    number_sections: false
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+The tidyverse provides a consistent grammar for cleaning, transforming, reshaping, and joining data. This section uses a **custom workforce dataset** to illustrate practical transformations that analysts perform in economic and labor market research.
+
+
+```{r}
+library(tidyverse)
+
+workforce_example <- tibble(
+  county = c("Mercer", "Middlesex", "Morris", "Union", "Somerset"),
+  jobs_2023 = c(185200, 401500, 302000, 292100, 178300),
+  jobs_2024 = c(188400, 407200, 309500, 295300, 181900),
+  wage = c(34.2, 36.8, 38.1, 35.4, 37.2),
+  unemp_rate = c(4.1, 3.8, 3.3, 4.5, 3.7),
+  ui_claims = c(1540, 2100, 1700, 2500, 1200),
+  openings = c(8200, 15100, 9200, 10300, 6100)
+)
+
+workforce_example
+```
+
+---
+
+# 1. Pipes: The Core of Tidyverse Workflow
+
+Pipes streamline multi-step transformations.
+
+```{r}
+workforce_example |>
+  filter(unemp_rate > 4) |>
+  mutate(openings_ratio = openings / jobs_2024) |>
+  summarize(avg_ratio = mean(openings_ratio))
+```
+
+✔ Pipes will be used throughout this workshop in FRED, BLS, ACS, PUMS, and mapping workflows.
+
+---
+
+### 📘 Exercises
+1. Filter for counties with wage > 36.  
+2. Create `jobs_growth = jobs_2024 - jobs_2023`.  
+3. Compute average unemployment rate across counties.
+
+---
+
+# 2. Selecting Columns with `select()`
+
+```{r}
+workforce_example |> 
+  select(county, wage, unemp_rate)
+```
+
+Select columns by pattern:
+
+```{r, eval=FALSE}
+select(workforce_example, starts_with("jobs"))
+select(workforce_example, ends_with("rate"))
+select(workforce_example, -ui_claims)
+```
+
+---
+
+### 📘 Exercises
+1. Select all job-related columns.  
+2. Drop all columns except county and wage.
+
+---
+
+# 3. Filtering Rows with `filter()`
+
+```{r}
+workforce_example |>
+  filter(jobs_2024 > 300000)
+```
+
+Multiple conditions:
+
+```{r, eval=FALSE}
+filter(workforce_example,
+       wage > 36,
+       unemp_rate < 4)
+```
+
+---
+
+### 📘 Exercises
+1. Filter counties with both high wages (> 37) **and** low unemployment (< 4).  
+2. Filter counties with UI claims above 2000.  
+
+---
+
+# 4. Transforming Data with `mutate()`
+
+```{r}
+workforce_example |>
+  mutate(
+    jobs_growth = jobs_2024 - jobs_2023,
+    wage_annual = wage * 2080
+  )
+```
+
+Categorical variables:
+
+```{r}
+workforce_example |>
+  mutate(
+    category = case_when(
+      unemp_rate < 3.5 ~ "Low unemployment",
+      unemp_rate < 4.0 ~ "Moderate unemployment",
+      TRUE ~ "High unemployment"
+    )
+  )
+```
+
+---
+
+### 📘 Exercises
+1. Create a `tightness = openings / ui_claims` variable.  
+2. Create a `high_wage` flag where wage > 37.
+
+---
+
+# 5. Summaries with `group_by()` and `summarize()`
+
+```{r}
+workforce_example |>
+  summarize(
+    avg_wage = mean(wage),
+    total_jobs_2024 = sum(jobs_2024)
+  )
+```
+
+Group by custom classes:
+
+```{r}
+workforce_example |>
+  mutate(size = if_else(jobs_2024 > 250000, "Large", "Small")) |>
+  group_by(size) |>
+  summarize(
+    average_wage = mean(wage),
+    avg_unemp = mean(unemp_rate)
+  )
+```
+
+---
+
+### 📘 Exercises
+1. Group counties into high/low UI claims and summarize unemployment rate.  
+2. Compute job growth by category from Section 4.
+
+---
+
+# 6. Sorting and Ordering
+
+```{r}
+workforce_example |> arrange(wage)
+```
+
+Descending:
+
+```{r}
+workforce_example |> arrange(desc(jobs_2024))
+```
+
+---
+
+### 📘 Exercises
+1. Sort counties by unemployment rate (highest to lowest).  
+2. Sort by wage descending, then jobs ascending.
+
+---
+
+# 7. Reshaping Data (pivot_longer / pivot_wider)
+
+## Wide → Long
+
+```{r}
+jobs_long <- workforce_example |>
+  pivot_longer(
+    cols = starts_with("jobs_"),
+    names_to = "year",
+    values_to = "jobs"
+  )
+
+jobs_long
+```
+
+## Long → Wide
+
+```{r}
+jobs_long |>
+  pivot_wider(
+    names_from = year,
+    values_from = jobs
+  )
+```
+
+---
+
+### 📘 Exercises
+1. Convert the wage and unemployment columns to long format.  
+2. Create a clean year variable from `"jobs_2024"`.
+
+---
+
+# 8. Joining Data
+
+Create a second dataset:
+
+```{r}
+metro_region <- tibble(
+  county = c("Mercer","Union","Somerset"),
+  metro = c("Trenton", "New York", "New York")
+)
+```
+
+Left join:
+
+```{r}
+left_join(workforce_example, metro_region, by="county")
+```
+
+Inner join:
+
+```{r}
+inner_join(workforce_example, metro_region, by="county")
+```
+
+---
+
+### 📘 Exercises
+1. Add a new county to `metro_region` and observe `full_join()`.  
+2. Explain which join preserves all counties from `workforce_example`.
+
+---
+
+# 9. Handling Missing Data
+
+```{r}
+df_na <- tibble(
+  county = c("Mercer","Union","Somerset"),
+  x = c(1, NA, 3),
+  y = c(NA, 2, 5)
+)
+
+df_na |> drop_na()
+df_na |> replace_na(list(x = 0, y = 0))
+```
+
+---
+
+### 📘 Exercises
+1. Count missing values with `summarize(across())`.  
+2. Impute missing x values with the mean of x.
+
+---
+
+# 10. Strings and Dates (Common for BLS/ACS Workflows)
+
+```{r}
+library(stringr)
+str_to_upper("mercer")
+str_remove("jobs_2024", "jobs_")
+```
+
+```{r}
+library(lubridate)
+ymd("2024-03-01")
+```
+
+---
+
+# Wrap-Up
+
+This session introduced the core data wrangling workflow that underpins all analysis in this workshop:
+
+- Pipes for clear multi-step transformations  
+- Selecting, filtering, reshaping, and transforming data  
+- Summarizing and grouping  
+- Joining datasets  
+- Handling missing values  
+- Working with dates and strings  
+
+These techniques prepare you for more advanced applications using FRED, BLS, ACS, PUMS, and geospatial data.
+
