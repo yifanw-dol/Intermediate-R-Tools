@@ -44,7 +44,7 @@ If you plan to run all live-coding examples, please obtain the following API key
 - **BEA API Key:**  
   https://apps.bea.gov/API/signup/  
 
-API keys can be stored in `.Renviron` or passed directly during the session (as shown in `_setup.Rmd`).
+You will receive your API keys by email. Please keep them—you’ll need them during the training.
 
 ## License
 
