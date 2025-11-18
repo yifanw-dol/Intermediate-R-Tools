@@ -28,9 +28,21 @@ Participants should have:
 - RStudio ≥ 2023.12  
 - Ability to install packages from CRAN  
 
-Optional but recommended:
+##  API Keys
 
-- Personal API keys for FRED, Census/ACS, BLS, and BEA
+If you plan to run all live-coding examples, please obtain the following API keys in advance:
+
+- **FRED API Key:**  
+  https://fred.stlouisfed.org/docs/api/api_key.html  
+
+- **Census API Key:**  
+  https://api.census.gov/data/key_signup.html  
+
+- **BLS API Key:**  
+  https://www.bls.gov/developers/  
+
+- **BEA API Key:**  
+  https://apps.bea.gov/API/signup/  
 
 API keys can be stored in `.Renviron` or passed directly during the session (as shown in `_setup.Rmd`).
 
