@@ -1,0 +1,311 @@
+---
+title: "Spatial Analysis and Mapping"
+author: "From Raw Data to Regional Insights: Intermediate R Tools for Workforce & Economic Development"
+date: "Nov 19-20, 2025"
+output:
+  html_document:
+    css: assets/rany_style.css
+    df_print: paged
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    toc_float:
+      collapsed: true
+    number_sections: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+options(tigris_use_cache = TRUE, tigris_class = "sf")
+
+library(tigris)
+library(sf)
+library(tidycensus)
+library(tidyverse)
+library(viridis)
+library(scales)
+library(stringr)
+library(tmap)
+library(mapview)
+library(blsAPI)
+```
+
+# 1. Introduction
+
+This module introduces a practical spatial workflow for workforce and economic development:
+
+1. Download geographic boundaries using **tigris**  
+2. Work with spatial data using **sf**  
+3. Map ACS variables with **tidycensus**  
+4. Map **BLS LAUS unemployment rates** at the county level  
+5. Produce static and interactive maps  
+
+Exercises (2–3 tasks) follow each tutorial.
+
+---
+
+# 2. TIGER/Line Shapefiles with `tigris`
+
+`tigris` gives direct access to U.S. Census geographic boundaries.
+
+```{r, results='hide'}
+nj_counties <- counties(state = "NJ", cb = TRUE, year = 2023)
+```
+
+```{r}
+nj_counties
+```
+
+Quick visualization:
+
+```{r}
+plot(nj_counties$geometry, main = "New Jersey Counties")
+```
+
+---
+
+##  Exercises 
+
+1. Change the state to **PA** and download Pennsylvania counties.  
+2. Plot the county boundaries using `plot()`.  
+3. Try setting `cb = FALSE` and compare the detail level.
+
+---
+
+# 3. Basics of Spatial Data with `sf`
+
+`sf` is the standard data structure for spatial analysis in R.
+
+---
+
+## 3.1 Inspecting an `sf` object
+
+```{r}
+class(nj_counties)
+st_geometry_type(nj_counties)
+st_crs(nj_counties)
+```
+
+---
+
+## 3.2 Converting a data frame → sf points
+
+```{r}
+centers_df <- tibble(
+  name = c("Newark Office", "Trenton Office"),
+  lon  = c(-74.17, -74.75),
+  lat  = c(40.73, 40.22)
+)
+
+centers_sf <- st_as_sf(
+  centers_df,
+  coords = c("lon", "lat"),
+  crs    = 4326
+)
+
+centers_sf
+```
+
+---
+
+## 3.3 Plotting sf layers with ggplot2
+
+```{r}
+ggplot() +
+  geom_sf(data = nj_counties, fill = "grey90", color = "white") +
+  geom_sf(data = centers_sf, color = "red", size = 3) +
+  labs(title = "Example Points on NJ Counties") +
+  theme_minimal()
+```
+
+---
+
+##  Exercises 
+
+1. Create an sf object of **three additional points** (any coordinates).  
+2. Plot them on top of your county map.  
+3. Use `st_transform(..., 3857)` to convert to a projected CRS.
+
+---
+
+# 4. Mapping Census/ACS Data with `tidycensus`
+
+Set your Census API key:
+
+```{r, results='hide'}
+census_api_key(Sys.getenv("CENSUS_API_KEY"), install = TRUE, overwrite=TRUE)
+```
+
+---
+
+## 4.1 Example: Median Household Income (New Jersey)
+
+```{r}
+nj_income <- get_acs(
+  state     = "34",
+  geography = "county",
+  variables = "B19013_001",
+  geometry  = TRUE,
+  year      = 2020
+)
+```
+
+Map the results:
+
+```{r}
+nj_income %>%
+  ggplot(aes(fill = estimate)) +
+  geom_sf(color = "white") +
+  scale_fill_viridis_c(option = "magma") +
+  labs(
+    title = "Median Household Income by County",
+    subtitle = "New Jersey, ACS 2020",
+    fill = "Income (USD)"
+  ) +
+  theme_minimal()
+```
+
+---
+
+##  Exercises 
+
+1. Replace `B19013_001` with **poverty rate** (`B17001_002`).  
+2. Map the variable using the same ggplot template.  
+3. Change the palette to `"viridis"` or `"plasma"`.
+
+---
+
+# 5. Mapping BLS Data (LAUS) for Unemployment Rate
+
+This is one of the most useful applied mapping workflows for workforce & labor analysis.
+
+---
+
+## 5.1 Download county-level unemployment (LAUS API)
+
+County-level LAUS series follow this pattern:
+
+```
+LAUCN + STATEFIPS + COUNTYFIPS + 000000003
+```
+
+Example: New Jersey (state FIPS = 34).
+
+```{r}
+nj_fips <- nj_counties$COUNTYFP
+laus_ids <- paste0("LAUCN34", nj_fips, "0000000003")
+```
+
+Call the API:
+
+```{r}
+bls_key <- Sys.getenv("BLS_API_KEY")
+
+laus_raw <- blsAPI(
+  list(
+    seriesid       = laus_ids,
+    startyear      = 2024,
+    endyear        = 2025,
+    registrationKey = bls_key
+  ),
+  api_version = 2,
+  return_data_frame = TRUE
+)
+```
+
+---
+
+## 5.2 Clean and keep the latest month
+
+```{r}
+laus_clean <- laus_raw %>%
+  mutate(
+    value = as.numeric(value),
+    month = as.integer(sub("M", "", period)),
+    month_lab = month.abb[month],
+    period_lab = paste0(month_lab, " ", year),
+    COUNTYFP = substr(seriesID, 8, 10)
+  ) %>%
+  filter(period != "M13") %>%
+  arrange(seriesID, year, month) %>%
+  group_by(seriesID) %>%
+  slice_tail(n = 1) %>%
+  ungroup() %>%
+  select(COUNTYFP, unemp_rate = value, period_lab)
+
+laus_clean
+```
+
+---
+
+## 5.3 Join unemployment → county geometries
+
+```{r}
+nj_unemp_geo <- nj_counties %>%
+  left_join(laus_clean, by = "COUNTYFP")
+```
+
+---
+
+## 5.4 Map county unemployment
+
+```{r}
+ggplot(nj_unemp_geo, aes(fill = unemp_rate)) +
+  geom_sf(color = "white") +
+  scale_fill_viridis_c(option = "C", direction = -1) +
+  labs(
+    title = "New Jersey County Unemployment Rate",
+    subtitle = paste("LAUS:", unique(nj_unemp_geo$period_lab)),
+    fill = "Unemp (%)",
+    caption = "Source: BLS LAUS Public API"
+  ) +
+  theme_minimal()
+```
+
+---
+
+##  Exercises 
+
+1. Change the state to **New York** (state FIPS = 36).  
+   - Get counties with `counties("NY")`  
+   - Build LAUS series with pattern `"LAUCN36"`  
+   - Map the unemployment rate  
+
+3. Use `scale_fill_gradient2()` and pick your own midpoint (e.g., 4%).
+
+---
+
+# 6. Interactive Mapping (Quick Tools)
+
+### 6.1 mapview (1 line, instant map)
+
+```{r}
+mapview(nj_unemp_geo, zcol = "unemp_rate")
+```
+
+### 6.2 tmap interactive mode
+
+```{r}
+tmap_mode("view")
+
+tm_shape(nj_unemp_geo) +
+  tm_polygons(col = "unemp_rate", palette = "inferno")
+
+tmap_mode("plot")
+```
+
+---
+
+# 7. Summary
+
+This short, practical module provided:
+
+- Core `sf` operations  
+- Basic mapping with `tigris` and `ggplot2`  
+- Easy ACS mapping with `tidycensus`  
+- Applied BLS unemployment mapping using LAUS API 
+- Static + interactive maps  
+
+This completes the core workflow for spatial analysis in labor market and economic development contexts.
+

@@ -1,0 +1,556 @@
+---
+title: "Data Visualization ggplot2"
+author: "From Raw Data to Regional Insights: Intermediate R Tools for Workforce & Economic Development"
+date: "Nov 19-20, 2025"
+output:
+  html_document:
+    css: assets/rany_style.css
+    df_print: paged
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    toc_float:
+      collapsed: true
+    number_sections: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# Introduction
+
+This document is a hands-on script for our data visualization session, focused on using ggplot2 to transform raw economic data into clear, publication-quality charts. Throughout this workshop, we will pull real-time data from federal APIs—including FRED, BLS, and BEA—clean the outputs with the tidyverse, and build visualizations that support workforce and economic development analysis.
+
+`ggplot2` is the core tool in this workflow. It follows the Grammar of Graphics framework, meaning every chart is built step by step:
+
+- you choose the dataset,
+- map variables to visual elements (aesthetics),
+- add geometric layers such as lines, bars, and points,
+- customize scales, themes, labels, and annotations.
+
+This structure makes your charts reproducible, customizable, and easy to update as new data arrives.
+
+Each section in this file follows a consistent workflow:
+
+- Download data from an official API
+- Clean or reshape the data
+- Visualize with ggplot2
+- Try exercises to adapt the code to your own agency use cases
+
+This file serves as both a live-coding script for the training and a template for producing your own ongoing charts and reports.
+
+
+## 1. Visualizing FRED data with `ggplot2`
+
+In this section, we use the **FRED** (Federal Reserve Economic Data) API to download macroeconomic time series directly into R and visualize them with `ggplot2`. The **fredr** package provides a convenient interface to the FRED RESTful API. For package documentation, see: <https://sboysel.github.io/fredr/>.
+
+You will need to request a FRED API key here: <https://fred.stlouisfed.org/docs/api/api_key.html>. Once you have your key, you can register it in R as follows (replace the placeholder string with your own key):
+
+```{r, results="hide"}
+# install.packages("fredr")
+```
+
+```{r, results="hide"}
+# Load library
+library(fredr)
+library(tidyverse)
+library(ggplot2)
+
+# Register the key for this R session
+fredr_set_key(Sys.getenv("FRED_API_KEY"))
+```
+
+### 1.1 Download a single FRED series
+Here we download the U.S. unemployment rate (`UNRATE`) series from FRED.
+
+```{r, results="hide"}
+unemp <- fredr(series_id = "UNRATE")
+```
+
+```{r}
+unemp
+```
+
+### 1.2 Plotting unemployment data with `ggplot2`
+
+We start with a simple line plot of the unemployment rate.
+
+`ggplot()` is used to construct the initial plot object, and is almost always followed by a plus sign (+) to add components to the plot.
+
+```{r}
+# Basic line plot
+urate_plot <- ggplot(               # Initialize a ggplot object
+  data = unemp,                     # Use 'unemp' as the data source
+  aes(x = date, y = value)) +       # Map 'date' to x-axis and 'value' to y-axis
+  geom_line()                       # Add a line layer to visualize the trend over time
+
+urate_plot                          # Display the resulting plot
+```
+```{r}
+# Set up working directory
+setwd("/Users/yifan/Desktop/R training")
+
+# Save the plot to a file
+ggsave(
+  filename = "results/figures/urate_plot.png",   
+  plot     = urate_plot,         
+  width    = 6,                 
+  height   = 4,                  
+  dpi      = 300                 # Resolution (300 dpi = print quality)
+)
+```
+
+Next, we define a simple custom theme and apply it to the plot:
+
+```{r}
+# Creating our own theme
+my_theme <- theme(
+  panel.background = element_rect(fill = "cornsilk", color = "wheat"),
+  panel.grid.major = element_line(color = "wheat"),
+  panel.grid.minor = element_blank()
+)
+
+# Line plot with customized theme 
+urate_plot <- urate_plot + my_theme
+urate_plot
+```
+
+### 1.3 Multiple FRED series
+
+Often we want to compare several series (e.g., unemployment rate and the federal funds rate). Here we use `purrr::map_dfr()` to download multiple series and combine them into a single data frame.
+
+```{r, results="hide"}
+data <- purrr::map_dfr(c("UNRATE", "FEDFUNDS"), fredr)
+```
+
+```{r}
+data
+```
+
+Now we make a quick chart of both series:
+
+```{r}
+# Basic line plot for multiple series
+data %>%                              # Pipe the data forward
+  ggplot(aes(                         # Initialize ggplot and set aesthetics  
+    x     = date,                     # x-axis = date
+    y     = value,                    # y-axis = numeric value
+    color = series_id                 # Use series_id to color different series
+  )) +
+  geom_line() +                       # Draw a line for each series
+  my_theme                            # Apply a custom theme
+```
+
+We can also customize the color scale to use specific colors:
+
+```{r}
+multiple_plot <- data %>%
+  ggplot(aes(
+    x     = date, 
+    y     = value, 
+    color = series_id
+  )) + 
+  geom_line() + 
+  scale_color_manual(values = c(UNRATE = "steelblue", FEDFUNDS = "lightblue"),
+                     labels = c(UNRATE = "Unemployment Rate", FEDFUNDS = "Federal Funds Effective Rate")) +
+  my_theme
+
+multiple_plot
+
+# Save 
+ggsave("~/Desktop/R training/results/figures/multiple_plot.png", width = 6, height = 4, dpi = 300)
+```
+
+
+### 1.4 Plotting bar charts
+
+```{r}
+# Download Real Gross Domestic Product
+rgdp <- fredr(
+  series_id         = "GDPC1",
+  observation_start = as.Date("2000-01-01"),
+  observation_end   = as.Date("2024-01-01"),
+  frequency         = "q",   # quarterly
+  units             = "pc1"  # percent change from 1 year ago
+)
+
+# Plot bar chart 
+rgdp_plot <- rgdp %>%
+  ggplot(aes(
+    x    = date, 
+    y    = value, 
+    fill = series_id
+  )) + 
+  # geom_bar(stat = "identity") +
+  geom_col() +
+  my_theme
+
+rgdp_plot
+
+# Save bar chart
+ggsave("~/Desktop/R training/results/figures/rgdp_plot.png", rgdp_plot, width = 6, height = 4, dpi = 300)
+```
+
+### 1.6 Exercises: FRED
+
+1. Use `fredr()` to download the U.S. **CPI** for all urban consumers (`CPIAUCSL`), starting from 2010.
+2. Create a line chart of CPI with a different color and add a title and axis labels.
+
+
+## 2. Visualizing BLS data with `ggplot2`
+
+In this section, we use the **Bureau of Labor Statistics (BLS)** API to download job openings data from the JOLTS program and visualize it with `ggplot2`. We will use the **blsAPI** package, which wraps the BLS public API. You must request your own BLS API key here: <https://data.bls.gov/registrationEngine/>
+
+### 2.1 Download data with `blsAPI`
+
+```{r}
+library(blsAPI)
+
+# Replace with your own BLS API key
+bls_key <- Sys.getenv("BLS_API_KEY")
+
+df <- blsAPI(
+  list(
+    'seriesid'       = c("JTS000000000000000JOR", "JTS000000340000000JOR"), # US total, New Jersey
+    'startyear'      = 2018,
+    'endyear'        = 2025,
+    'annualaverage'  = FALSE,
+    'calculations'   = FALSE,
+    'catalog'        = TRUE,
+    'registrationKey'= bls_key
+  ),
+  api_version       = 2,
+  return_data_frame = TRUE
+)
+```
+
+### 2.2 Tidy data for plotting
+
+The BLS API returns year and period (e.g., `"M01"` for January). We convert these to a proper date, create state labels, and keep only observations where we have both U.S. and New Jersey data.
+
+```{r}
+df_cleaned <- df %>%
+  mutate(
+    yom        = as.Date(paste0(year, "-", substr(period, 2, 3), "-01"), format = "%Y-%m-%d"),
+    value      = as.numeric(value),
+    state      = substr(seriesID, 10, 11),
+    state_name = ifelse(state == "00", "United States", NA),
+    state_name = ifelse(state == "34", "New Jersey", state_name)
+  ) %>%
+  group_by(yom) %>%
+  filter(n() == 2)  
+
+df_cleaned
+```
+
+### 2.3 Basic line plot
+
+We start with a simple time-series of the U.S. job openings rate.
+
+```{r}
+plot <- df_cleaned %>%
+  filter(state == "00") %>%
+  ggplot() +
+  geom_line(aes(x = yom, y = value))
+
+plot
+```
+
+### 2.4 Enhanced line plot with labels and shaded recession
+
+Here we customize the line, add titles and labels, and shade the 2020 recession.
+
+```{r}
+plot_1 <- df_cleaned %>%
+  filter(state == "00") %>%
+  ggplot() +
+  geom_line(
+    aes(x = yom, y = value),
+    color    = "darkblue", 
+    linetype = "solid", 
+    linewidth= 1
+  ) +
+  labs(
+    title    = "Job Openings Rate in the United States",
+    subtitle = "January 2018 - July 2025, Seasonally Adjusted",
+    caption  = "Note: Shading denotes NBER-dated recessions.\nSource: Bureau of Labor Statistics Job Openings and Labor Turnover Survey.",
+    x        = "",
+    y        = "Percent"
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(1, 8),
+    labels = scales::label_percent(accuracy = 1, scale = 1)
+  ) +
+  scale_x_date(
+    expand      = c(0, 0),
+    date_labels = "%b\n%Y", 
+    breaks      = "6 month"
+  ) +
+  annotate(
+    "rect", 
+    xmin  = as.Date("2020-02-01"), 
+    xmax  = as.Date("2020-04-01"), 
+    ymin  = -Inf, 
+    ymax  = Inf, 
+    alpha = .1, 
+    fill  = "darkgrey"
+  )
+
+plot_1
+```
+
+### 2.5 A custom DOL-style theme
+
+We define a reusable theme tailored for labor-market charts:
+
+```{r}
+theme_dol <- function(){ 
+  theme_classic() +
+    theme(
+      # remove gridlines
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      
+      # text elements
+      plot.title      = element_text(size = 14, face = 'bold', hjust = 0.5),   
+      plot.subtitle   = element_text(size = 12, hjust = 0.5),             
+      plot.caption    = element_text(hjust = 0, size = 10),
+      axis.title      = element_text(size = 12, face = 'bold', vjust = 3),   
+      axis.text.x     = element_text(angle = 0, vjust = 0.5, hjust = 0.5, colour = "black", size = 12),
+      axis.text.y     = element_text(colour = "black", size = 12),
+      axis.line       = element_line(colour = "black"),
+      
+      # legend
+      legend.text     = element_text(size = 10.5, face = 'bold'),
+      legend.title    = element_blank(),
+      legend.position = "top",
+      
+      # panel
+      panel.border    = element_blank(),
+      panel.background= element_blank(),
+      
+      plot.margin     = margin(1, 1.5, 1, 1, "lines"),
+      plot.title.position = "plot"
+    )
+}
+
+plot_1 + theme_dol()
+```
+
+### 2.6 Plotting multiple series (U.S. vs. New Jersey)
+
+Finally, we plot both the U.S. and New Jersey job openings rates on the same chart.
+
+```{r}
+library(ggthemes) 
+
+plot_multi <- df_cleaned %>%
+  ggplot() +
+  geom_line(
+    aes(
+      x        = yom, 
+      y        = value, 
+      group    = state_name, 
+      color    = state_name, 
+      linetype = state_name, 
+      linewidth= state_name
+    )
+  ) +
+  labs(
+    title    = "Job Openings Rate in the United States vs. New Jersey",
+    subtitle = "January 2018 - July 2025, Seasonally Adjusted",
+    caption  = "Note: Shading denotes NBER-dated recessions.\nSource: Bureau of Labor Statistics Job Openings and Labor Turnover Survey.",
+    x        = "",
+    y        = "Percent"
+  ) +
+  guides(
+    color    = guide_legend(title = "", ncol = 3),
+    linetype = "none",
+    linewidth= "none"
+  ) +
+  scale_colour_manual(values   = c("darkorange", "darkblue")) +
+  scale_linetype_manual(values = c("solid", "solid")) + 
+  scale_linewidth_manual(values = c(1, 0.6)) + 
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(1, 8),
+    labels = scales::label_percent(accuracy = 1, scale = 1)
+  ) +
+  scale_x_date(
+    expand      = c(0, 0),
+    date_labels = "%b\n%Y", 
+    breaks      = "6 month"
+  ) +
+  annotate(
+    "rect", 
+    xmin  = as.Date("2020-02-01"), 
+    xmax  = as.Date("2020-04-01"), 
+    ymin  = -Inf, 
+    ymax  = Inf, 
+    alpha = .1, 
+    fill  = "darkgrey"
+  ) +
+  theme_economist()
+
+plot_multi
+```
+
+### 2.7 Exercises: BLS
+
+1. Modify the query to download data only through **2023** instead of 2025.
+2. Change the y-axis label to “Job openings rate (percent)” and adjust the y-axis limits as needed.
+3. Add a vertical line (`geom_vline`) to highlight a month of interest (for example, a peak in openings).
+4. Create a version of `plot_multi` where:
+   - New Jersey is highlighted with a thicker line,
+   - The U.S. series is shown in a lighter color.
+
+## 3. Visualizing BEA data with `ggplot2`
+
+In this section, we use the **Bureau of Economic Analysis (BEA)** API to download real GDP data and compare growth rates for the United States and New Jersey.
+
+We will use the **bea.R** package. For details, see the package documentation and examples: <https://github.com/us-bea/bea.R>
+
+You must request your own BEA API key here: <https://apps.bea.gov/API/signup/>
+
+### 3.1 Setup and API key
+
+```{r, results='hide'}
+# Load library
+library(bea.R)
+
+# Replace with your own BEA API key
+beaKey <- Sys.getenv("BEA_API_KEY")
+```
+
+### 3.2 Download GDP data with `beaGet`
+
+We first download quarterly U.S. GDP from the NIPA tables and then regional GDP for New Jersey.
+
+```{r, results="hide"}
+# Download GDP data for US
+rgdp_us_pc <- beaGet(
+  list(
+    'UserID'      = beaKey,
+    'Method'      = 'GetData',
+    'datasetname' = 'NIPA',
+    'TableName'   = 'T10101', 
+    'Frequency'   = 'Q',
+    'Year'        = '2024,2025',
+    'ResultFormat'= 'json'
+    ), 
+  asWide = FALSE
+)
+
+# Download GDP data for NJ
+gdp_nj <- beaGet(
+  list(
+    'UserID'      = beaKey,
+    'Method'      = 'GetData',
+    'datasetname' = 'REGIONAL',
+    'TableName'   = 'SQGDP1', 
+    'LineCode'    = 'ALL',
+    'GeoFIPS'     = '34000',
+    'Year'        = '2024,2025',
+    'ResultFormat'= 'json'
+  ), 
+  asWide = FALSE
+)
+```
+
+### 3.3 Tidy data for plotting
+
+We filter the U.S. data to overall GDP and compute approximate annualized growth for New Jersey. Then we combine the two.
+
+```{r}
+rgdp_us_pc_cleaned <- rgdp_us_pc %>%
+  filter(LineDescription == "Gross domestic product") %>%
+  rename(pc_a = DataValue) %>%
+  mutate(
+    pc_a  = as.numeric(pc_a),
+    place = "United States"
+  )
+
+rgdp_nj_pc_cleaned <- gdp_nj %>%
+  filter(CL_UNIT == "Millions of chained 2017 dollars") %>%
+  arrange(TimePeriod) %>%
+  mutate(
+    pc_a  = round(100 * ((DataValue / lag(DataValue))^4 - 1), 1),
+    place = "New Jersey"
+  )
+
+rgdp_pc_lateset <- bind_rows(rgdp_us_pc_cleaned, rgdp_nj_pc_cleaned) %>%
+  rename(yoq = TimePeriod) %>%
+  select(yoq, pc_a, place) %>%
+  mutate(year = as.numeric(substr(yoq, 1, 4))) %>%
+  na.omit() %>%
+  filter(year >= max(year) - 1) %>%
+  group_by(yoq) %>%
+  filter(n() == 2) %>%
+  ungroup()
+
+rgdp_pc_lateset
+```
+
+### 3.4 Plotting GDP growth with `ggplot2`
+
+Finally, we create a grouped bar chart comparing real GDP growth (at annual rates) for New Jersey and the United States.
+
+```{r}
+rgdp_pc_lateset %>%
+  ggplot() +
+  geom_bar(
+    aes(
+      x    = yoq, 
+      y    = pc_a, 
+      fill = factor(place)
+    ),
+    color   = "grey", 
+    stat    = "identity", 
+    position= "dodge", 
+    width   = 0.7, 
+    alpha   = 0.8
+  ) +
+  labs(
+    title   = "Real GDP, Percent Change at Annual Rate: New Jersey vs. United States",
+    subtitle= paste0(min(rgdp_pc_lateset$yoq), " - ", max(rgdp_pc_lateset$yoq)),
+    caption = "Note: Seasonally adjusted annual rates.\nSource: U.S. Bureau of Economic Analysis.",
+    x       = "",
+    y       = "",
+    fill    = ""
+  ) +
+  scale_fill_manual(values = c("darkorange", "#3b3b6d")) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(-1, 4),
+    labels = function(x) paste0(x, "%")
+  ) +
+  theme_economist_white(
+    base_size = 10,
+    horizontal = TRUE
+  ) +
+  theme(
+    plot.title   = element_text(size = 13, face = 'bold', hjust = 0.5, vjust = 2),   
+    plot.subtitle= element_text(size = 12, hjust = 0.5),             
+    plot.caption = element_text(hjust = 0, size = 10, vjust = -2), 
+    axis.text.x  = element_text(size = 12, angle = 0, hjust = 0.5),
+    axis.text.y  = element_text(size = 12)
+  )
+```
+
+# Summary
+
+- Learned a complete API-to-visualization workflow using FRED, BLS, and BEA data.
+- Cleaned and reshaped raw API outputs with the tidyverse.
+- Built clear, reproducible charts using ggplot2 and its Grammar-of-Graphics structure.
+- Developed templates you can reuse for monthly updates, state reports, and future data products.
+
+
+
+

@@ -1,0 +1,299 @@
+---
+title: "R Basics"
+author: "From Raw Data to Regional Insights: Intermediate R Tools for Workforce & Economic Development"
+date: "Nov 19-20, 2025"
+output:
+  html_document:
+    css: assets/rany_style.css
+    df_print: paged
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    toc_float:
+      collapsed: true
+    number_sections: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Introduction
+
+This section provides a concise overview of foundational R concepts needed for the rest of our training.  
+We cover data types, vectors, lists, data frames, tibbles, functions, and joins — the essential building blocks for working with FRED, BLS APIs, ACS microdata, and spatial data.
+
+---
+
+# 1. Getting Help in R
+
+R has multiple built-in ways to learn about functions and troubleshoot code.
+
+- `help(function)` or `?function` opens documentation  
+- `example(function)` shows usage  
+- Restart session: `q()` or RStudio’s Session menu
+
+```{r, eval=FALSE}
+help(typeof)
+?mean
+example(sum)
+```
+
+### Exercises
+1. Open help pages for `sd` and `log`.  
+2. Try `example(mean)` and observe the output.
+
+---
+
+# 2. Working Directory & Environment Basics
+
+Your working directory is where R reads and writes files.
+
+```{r, eval=FALSE}
+getwd()
+setwd("~/Desktop/R training")
+
+list.files()
+```
+
+### Exercises
+1. Change your working directory to your Desktop.  
+2. Use `list.files()` to inspect files there.
+
+---
+
+# 3. Data Types in R
+
+```{r, eval=FALSE}
+typeof(10)       # numeric
+typeof(10L)      # integer
+typeof(1.5)      # double
+typeof(TRUE)     # logical
+typeof("hello")  # character
+```
+
+### Exercises
+1. Check the type of `"123"`.  
+2. Compare `typeof(1)` vs `typeof(1L)`.
+
+---
+
+# 4. Variable Assignment & Printing
+
+```{r, eval=FALSE}
+x <- 1.5       # recommended
+y = 2.5        # also works
+
+print(x)
+x              # implicit print
+
+rm(x)          # remove variable
+```
+
+---
+
+# 5. Vectors
+
+Vectors store values of the **same type**.
+
+```{r, eval=FALSE}
+v <- c(1,2,3,4)
+length(v)
+typeof(v)
+
+1:5            # consecutive sequence
+
+v + 10         # vectorized arithmetic
+v * 2
+```
+
+### Exercises
+1. Create a vector of years from 2000 to 2025.  
+2. Multiply the vector by 2.
+
+---
+
+# 6. Character & Logical Vectors
+
+```{r, eval=FALSE}
+c("Mercer", "Middlesex")
+c(TRUE, FALSE, TRUE)
+```
+
+---
+
+# 7. Relational & Logical Operators
+
+```{r, eval=FALSE}
+3 < 5
+4 == 4
+3 != 4
+
+TRUE & FALSE
+TRUE | FALSE
+!TRUE
+```
+
+### Exercises
+1. Which numbers from 1:10 are greater than 5?  
+2. Combine conditions using `&` and `|`.
+
+---
+
+# 8. The Pipe Operator (`%>%`)
+
+Pipes are central to modern R workflows. A pipe takes the output of one expression and passes it as the first argument to the next function.
+
+```{r}
+library(dplyr)
+
+# Tidyverse pipe 
+mtcars %>%
+  filter(mpg > 20) %>%
+  select(mpg, cyl, hp) %>%
+  summarise(avg_mpg = mean(mpg))
+```
+
+### Why pipes matter  
+They simplify multi-step transformations — essential for work with tidyverse, APIs, and microdata.
+
+
+---
+
+# 9. Lists
+
+Lists store elements of **different types**.
+
+```{r, eval=FALSE}
+my_list <- list(
+  name = "Yifan",
+  nums = c(1, 2, 3),
+  flag = TRUE
+)
+
+my_list$name
+my_list[["nums"]]
+```
+
+### Exercises
+1. Create a list with: your name, age, and a vector.  
+2. Extract the second element using `[[ ]]`.
+
+---
+
+# 10. Subsetting Vectors & Lists
+
+```{r, eval=FALSE}
+v <- c(2,4,6,8)
+
+v[1]            # first element
+v[c(1,4)]       # multiple
+v[-1]           # drop first
+
+lst <- list(a=1, b=2:3)
+
+lst[1]          # returns a list
+lst[[1]]        # returns the element
+```
+
+---
+
+# 11. Data Frames
+
+A **data frame** is a table where:
+
+- Rows = observations  
+- Columns = variables  
+- Columns are equal-length vectors  
+
+```{r, results='hide'}
+person  <- c("Yifan", "Nick")
+state <- c("New Jersey", "New York")
+
+X <- data.frame(Name = person, State = state)
+```
+
+Inspect:
+
+```{r}
+X
+class(X)
+str(X)
+```
+
+---
+
+# 12. Subsetting Data Frames
+
+```{r, eval=FALSE}
+X[1, ]           # first row
+X[, "Name"]      # column as vector
+X["Name"]        # column as data frame
+X$State          # extract by $
+```
+
+### Exercises
+1. Create a data frame with three students and scores.  
+2. Extract the second column using three methods.
+
+---
+
+# 13. Tibbles
+
+Tibbles are tidyverse-friendly data frames:
+
+- Do not auto-convert strings to factors  
+- Print cleanly  
+- Never change column types unexpectedly  
+
+```{r}
+library(tidyverse)
+Y <- tibble(Name=person, Salary=c(2000,1000))
+Y
+```
+
+---
+
+# 14. Subsetting Tibbles
+
+```{r, eval=FALSE}
+Y$Name
+Y[["Name"]]
+Y[1]           # returns tibble
+```
+
+---
+
+# 15. Joining (Merging) Data
+
+### Types of joins
+
+- `left_join()` — keep all rows from left  
+- `inner_join()` — matches only  
+- `right_join()` — keep all rows from right  
+- `full_join()` — keep everything  
+
+```{r}
+Y <- tibble(Name=c("Tim Cook","Bruce Sewell"), Salary=c(2000,1000))
+Z <- tibble(Name=c("Tim Cook","Luca Maestri"), Bonus=c(0,0))
+
+left_join(Y, Z, by="Name")
+```
+
+### Exercises
+1. Compare `inner_join()` vs `full_join()`.  
+2. Perform a right join and interpret the result.
+
+---
+
+# Wrap-Up
+
+These R basics form the foundation for all later sessions:
+
+- APIs return data frames and lists → you now know how to manipulate them  
+- PUMS and ACS require filtering, grouping, pipes, and joins  
+- Spatial data (`sf`, `tigris`) uses lists and data frames under the hood  
+- Plotting requires clean vectors and data frames  
+
+You now have the core skills to work confidently with workforce and economic datasets throughout the workshop.
+
